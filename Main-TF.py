@@ -8,13 +8,15 @@ import numpy as np
 import umap.umap_ as umap
 import matplotlib.pyplot as plt
 from collections import Counter
-import tqdm as tqdm
+from tqdm import tqdm  # Directly import the progress bar class
 from sklearn.cluster import DBSCAN
 import warnings
 from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 
+# Suppressing warnings
 warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
 warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
+
 
 
 # Load data
@@ -83,38 +85,42 @@ def draw_umap(data, n_neighbors=15, min_dist=0.1, n_components=2, metric='euclid
     plt.show()
     return u
 
-# For now, let's use the function with the parameters you initially specified
-umap_vecs = draw_umap(word_vec_array, n_neighbors=5, min_dist=0.3, n_components=2, metric='cosine', title='UMAP with n_neighbors=5')
+def main():
+    # For now, let's use the function with the parameters you initially specified
+    umap_vecs = draw_umap(word_vec_array, n_neighbors=5, min_dist=0.3, n_components=2, metric='cosine', title='UMAP with n_neighbors=5')
 
-# Clustering using DBSCAN
-print("Clustering data with DBSCAN...")
-clustering = DBSCAN(eps=0.5, min_samples=5).fit(umap_vecs)
-df['cluster_label'] = clustering.labels_
+    # Clustering using DBSCAN
+    print("Clustering data with DBSCAN...")
+    clustering = DBSCAN(eps=0.5, min_samples=5).fit(umap_vecs)
+    df['cluster_label'] = clustering.labels_
 
-# Extract Representative Keywords for Each Cluster
-def extract_keywords(cluster_texts, top_n=5):
-    all_tokens = [word for text in cluster_texts for word in word_tokenize(text)]
-    most_common = Counter(all_tokens).most_common(top_n)
-    keywords = [word[0] for word in most_common]
-    return keywords
+    # Extract Representative Keywords for Each Cluster
+    def extract_keywords(cluster_texts, top_n=5):
+        all_tokens = [word for text in cluster_texts for word in word_tokenize(text)]
+        most_common = Counter(all_tokens).most_common(top_n)
+        keywords = [word[0] for word in most_common]
+        return keywords
 
-# Create a dictionary to store keywords for each cluster
-cluster_to_keywords = {}
+    # Create a dictionary to store keywords for each cluster
+    cluster_to_keywords = {}
 
-unique_clusters = df['cluster_label'].unique()
+    unique_clusters = df['cluster_label'].unique()
 
-print("Extracting keywords for each cluster...")
-for cluster in tqdm(unique_clusters):
-    if cluster != -1:  # -1 is for noise in DBSCAN
-        cluster_texts = df[df['cluster_label'] == cluster]['preprocessed_narrative'].tolist()
-        keywords = extract_keywords(cluster_texts)
-        cluster_to_keywords[cluster] = keywords
+    print("Extracting keywords for each cluster...")
+    for cluster in tqdm(unique_clusters):
+        if cluster != -1:  # -1 is for noise in DBSCAN
+            cluster_texts = df[df['cluster_label'] == cluster]['preprocessed_narrative'].tolist()
+            keywords = extract_keywords(cluster_texts)
+            cluster_to_keywords[cluster] = keywords
 
-# Assign tags to each narrative based on its cluster
-print("Assigning tags to narratives...")
-df['tags'] = df['cluster_label'].apply(lambda x: cluster_to_keywords.get(x, 'Noise'))
+    # Assign tags to each narrative based on its cluster
+    print("Assigning tags to narratives...")
+    df['tags'] = df['cluster_label'].apply(lambda x: cluster_to_keywords.get(x, 'Noise'))
 
-# Save results
-print("Saving results to Excel...")
-df.to_excel("Clustered_Events_runninglist_Word2Vec_UMAP_Tags.xlsx", index=False)
-print("Done!")
+    # Save results
+    print("Saving results to Excel...")
+    df.to_excel("Clustered_Events_runninglist_Word2Vec_UMAP_Tags.xlsx", index=False)
+    print("Done!")
+
+if __name__ == "__main__":
+    main()
