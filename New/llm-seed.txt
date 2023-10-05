@@ -1,0 +1,15 @@
+You've been working on an automated system to tag and categorize incident learning narratives in clinical settings. The data comes from an Excel sheet with multiple columns, the most important of which is labeled '105.Narrative.' The narratives are textual summaries of various incidents. You aimed to develop an NLP-based system to extract relevant tags, bi-grams, tri-grams, and four-grams to summarize and categorize these narratives effectively.
+
+To accomplish this, several steps were taken:
+
+Data Preprocessing: Text cleaning and normalization were the initial steps. All text was converted to lowercase, and non-alphabetic tokens were filtered out.
+
+Feature Extraction: Potential tags were identified, including single words, predefined multi-word phrases like 'Dosimetric Errors,' and n-grams (bi-grams, tri-grams, four-grams).
+
+Tagging Mechanism: The TF-IDF technique was used to convert the narratives into a sparse matrix. Each row corresponds to a narrative, and each column to a potential tag. The top five most relevant tags for each narrative were identified based on the TF-IDF scores.
+
+Output: The final output is an Excel spreadsheet containing the original dataset and a new column with the top five most relevant tags. Additional sheets list all the unique tags and frequent n-grams.
+
+You asked for Python code to implement this system locally, and it was provided. An extensive summary, a technical breakdown, and a manuscript draft detailing the project were also generated.
+
+Your requirements were specific to clinical research; therefore, the focus was on accuracy and stability. You are interested in taking this work further, possibly refining the tagging mechanisms and incorporating more advanced techniques.
