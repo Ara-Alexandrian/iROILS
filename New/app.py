@@ -1,10 +1,9 @@
 # Import required libraries
-from flask import Flask
 import dash
-from dash import html, dcc
-import plotly.graph_objs as go
-import psycopg2
 import pandas as pd
+from dash import html, dash_table
+from flask import Flask
+from sqlalchemy import create_engine
 
 # Initialize Flask app
 server = Flask(__name__)
@@ -23,43 +22,70 @@ db_params = {
 
 # Function to fetch data from PostgreSQL
 def fetch_data(query):
-    conn = psycopg2.connect(**db_params)
-    df = pd.read_sql(query, conn)
-    conn.close()
+    engine = create_engine(f"postgresql://{db_params['user']}:{db_params['password']}@{db_params['host']}:{db_params['port']}/{db_params['dbname']}")
+    df = pd.read_sql(query, engine)
     return df
 
-# Example query (modify as needed)
-query = "SELECT * FROM full_events LIMIT 5;"
+# Example query to fetch data
+query = "SELECT * FROM full_events;"
 
-# Dash layout
+# Fetch data
+df = fetch_data(query)
+
+# Dash app layout with sidebar and DataTable
 app.layout = html.Div([
-    dcc.Graph(id='example-graph'),
-    # Add more components as needed
-])
-
-# Dash callback (example)
-@app.callback(
-    dash.dependencies.Output('example-graph', 'figure'),
-    [dash.dependencies.Input('your-input-component', 'value')]
-)
-def update_graph(input_value):
-    # Fetch data based on the input or other triggers
-    df = fetch_data(query)
-    return {
-        'data': [go.Scatter(
-            x=df['x_column'],
-            y=df['y_column'],
-            mode='markers'
-        )],
-        'layout': go.Layout(
-            title='Your Graph Title',
-            xaxis={'title': 'X Axis'},
-            yaxis={'title': 'Y Axis'}
+    # Sidebar
+    html.Div([
+        html.Button("Open Selection", id="open-selection", n_clicks=0),
+        html.Button("Filters", id="filters", n_clicks=0),
+        html.Button("Mark for Review", id="mark-for-review", n_clicks=0)
+    ], style={
+        'position': 'fixed',  # Fixed position
+        'top': 0,  # Align to the top of the viewport
+        'left': 0,  # Align to the left of the viewport
+        'background-color': '#333333',  # Dark charcoal background
+        'width': '20%',  # Width of sidebar
+        'height': '100vh',  # Full height of the viewport
+        'display': 'flex',
+        'flexDirection': 'column',
+        'padding': '10px',
+        'color': 'white'
+    }),
+    
+    # Main content
+    html.Div([
+        dash_table.DataTable(
+            id='table',
+            columns=[{"name": i, "id": i} for i in df.columns],
+            data=df.to_dict('records'),
+            style_table={
+                'maxWidth': '100%',
+                'overflowX': 'auto'
+            },
+            style_cell={
+                'whiteSpace': 'normal',
+                'height': 'auto',
+                'minWidth': 'fit-content',
+                'maxWidth': '0',
+                'textAlign': 'left'
+            },
+            style_cell_conditional=[
+                {
+                    'if': {'column_id': 'narrative'},
+                    'textAlign': 'left',
+                    'width': '50%'
+                }
+            ]
         )
-    }
+    ], style={
+        'marginLeft': '20%',  # Add left margin equivalent to the width of the sidebar
+        'width': '80%',  # Width of main content
+        'float': 'right',
+        'padding': '20px'
+    })
+], style={'display': 'flex', 'flexDirection': 'row'})
+
 
 # Run the app
 if __name__ == '__main__':
     app.run_server(debug=True, host='0.0.0.0', port=8050)
-
-
