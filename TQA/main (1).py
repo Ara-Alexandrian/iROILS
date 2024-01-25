@@ -79,21 +79,21 @@ if __name__ == '__main__':
     if not connection_success:
         sys.exit(3)
 
-    categories = tqa.get_request('/ils-categories')
-    print(categories)
+    # categories = tqa.get_request('/ils-categories')
+    # print(categories)
 
-    hazards = tqa.get_request('/ils-hazards')
-    print(hazards)
+    # hazards = tqa.get_request('/ils-hazards')
+    # print(hazards)
 
-    custom_fields = tqa.get_request('/ils-custom-fields')
-    print(json.dumps(custom_fields["json"], indent=4, sort_keys=True))
+    # custom_fields = tqa.get_request('/ils-custom-fields')
+    # print(json.dumps(custom_fields["json"], indent=4, sort_keys=True))
 
-    # dumps all the incidents
-    # ils_incidents = tqa.get_request('/ils')
-    # print(json.dumps(ils_incidents["json"], indent=4, sort_keys=True))
+    #dumps all the incidents
+    ils_incidents = tqa.get_request('/ils')
+    print(json.dumps(ils_incidents["json"], indent=4, sort_keys=True))
 
-    ils_incidents_filtered = tqa.get_request('/ils?site=265&reporterName=Matt')
-    print(json.dumps(ils_incidents_filtered["json"], indent=4, sort_keys=True))
+    # ils_incidents_filtered = tqa.get_request('/ils?site=265&reporterName=Matt')
+    # print(json.dumps(ils_incidents_filtered["json"], indent=4, sort_keys=True))
 
     # upload_response = upload_ils_incident(site=265, description="a report of something", reporter="Matt")
     # print(upload_response)
