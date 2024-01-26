@@ -1,0 +1,27 @@
+This project involves a comprehensive NLP pipeline integrated with a Redis database, designed to process clinical narratives and summaries. The pipeline enhances the stored data by generating N-grams, embeddings, tags (via Named Entity Recognition), and clusters for each narrative and summary pair. This enrichment aims to facilitate more effective data organization, retrieval, and analysis. The setup leverages powerful computational resources, including two NVIDIA RTX 3090 GPUs with NVLink. Here's a summary of the project components and workflow:
+
+1. **Data Storage and Retrieval with Redis**:
+    - Narratives and summaries are stored in Redis, a fast, in-memory data store.
+    - A Python script fetches this data for processing.
+
+2. **Text Processing and Feature Extraction**:
+    - **N-grams Generation**: The script generates N-grams from the narratives and summaries to capture local word patterns.
+    - **Embeddings Generation**: Using the SentenceTransformer library, the script creates dense vector representations of the text, encapsulating semantic information.
+
+3. **Natural Language Processing (NLP)**:
+    - **Named Entity Recognition (NER)**: The script uses a pre-trained NER model (`dbmdz/bert-large-cased-finetuned-conll03-english`) to identify and tag entities and concepts within the text, adding another layer of structure to the data.
+
+4. **Clustering**:
+    - The embeddings are used as features for clustering (via KMeans) to group similar narratives and summaries, aiding in the identification of common themes or patterns.
+
+5. **Data Persistence**:
+    - The resulting N-grams, tags, and cluster labels are stored back in Redis, associated with their respective narrative and summary. This structured data is poised to support advanced search, retrieval, and analysis operations.
+
+6. **Infrastructure**:
+    - The system is designed to leverage high-performance hardware, specifically two NVIDIA RTX 3090 GPUs, to efficiently handle compute-intensive operations like embeddings generation and clustering.
+
+7. **Scripting and Automation**:
+    - The entire process is automated through Python scripts, ensuring that narratives and summaries can be systematically processed and enriched with valuable metadata.
+    - The scripts include error handling and output to the console for monitoring the progress and success of the operations.
+
+This project stands out by transforming raw clinical narratives and summaries into richly annotated, easily searchable data, paving the way for insightful data analysis and decision-making support in clinical settings. The use of cutting-edge NLP techniques and powerful computational resources underscores the project's innovative and performance-oriented approach.
