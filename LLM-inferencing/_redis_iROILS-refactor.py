@@ -25,6 +25,7 @@ import time
 import paramiko
 import openpyxl
 
+
 def create_excel_from_redis(r):
     # Create a new workbook and add a worksheet to it
     wb = openpyxl.Workbook()
@@ -32,16 +33,17 @@ def create_excel_from_redis(r):
     ws.title = "Extract Summary"
 
     # Add headers to the worksheet
-    headers = ['Key', 'Narrative', 'Summary']
+    headers = ['Key', 'Narrative', 'Summary', 'Evaluation']
     ws.append(headers)
 
     # Fetch all keys from Redis
     keys = r.keys('*')
+    # print(keys)
 
     for key in keys:
         # Retrieve the narrative and summary from Redis
         narrative = r.hget(key, 'Narrative')
-        summary = r.hget(key, 'LLM Summary')
+        summary = r.hget(key, 'mistral:LLM Summary')  # Updated this line to fetch 'Summary' as 'LLM Summary'
 
         # Append the key, narrative, and summary to the worksheet
         ws.append([key, narrative, summary])
@@ -49,9 +51,8 @@ def create_excel_from_redis(r):
     # Save the workbook to a file
     wb.save('extract_summary.xlsx')
 
-# Use the function
-if redis_conn:
-    create_excel_from_redis(redis_conn)
+
+
 
 
 # SSH-based container management function
@@ -177,6 +178,10 @@ def generate_summaries(r, model_name, hostname, username, password, container_na
 
     pbar.close()
 
+
+
+
+
 # Example usage:
 hostname = '192.168.1.47'
 username = 'root'
@@ -192,5 +197,6 @@ model_name = 'mistral'  # Specify the model name whose data you want to clear
 
 
 if redis_conn:
-    # clear_model_data(redis_conn, model_name)
+    clear_model_data(redis_conn, model_name)
     generate_summaries(redis_conn, model_name, hostname, username, password, container_name)
+    create_excel_from_redis(redis_conn)
