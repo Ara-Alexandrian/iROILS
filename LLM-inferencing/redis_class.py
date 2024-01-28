@@ -44,7 +44,7 @@ Please note that the methods will use the configuration that was read from the `
 import redis
 import requests
 import json
-import tqdm
+from tqdm.notebook import tqdm
 import time
 import paramiko
 import openpyxl
@@ -205,7 +205,8 @@ class RedisManager:
         keys = self.redis_conn.keys('*')
 
         # Initialize progress bar
-        pbar = tqdm.tqdm(total=len(keys), ncols=70)
+        pbar = tqdm(total=len(keys), ncols=70)
+
 
         for key in keys:
             summary_field = f'{self.summary_model_name}:LLM Summary'
@@ -258,7 +259,8 @@ class RedisManager:
     def evaluate_summaries(self, resume=True):
         keys = self.redis_conn.keys('*')
         headers = {'Content-Type': 'application/json'}
-        pbar = tqdm.tqdm(total=len(keys), ncols=70)
+        pbar = tqdm(total=len(keys), ncols=70)
+
         last_key = None
         last_eval = None
         for key in keys:
