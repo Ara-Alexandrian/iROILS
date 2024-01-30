@@ -2,6 +2,7 @@ import math
 import redis
 import json
 
+
 # Setup Redis connection - Modify these variables as per your environment
 redis_host = "192.168.1.4"
 redis_port = 6379

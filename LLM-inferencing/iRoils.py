@@ -1,8 +1,12 @@
 import json
 from sklearn.cluster import KMeans
 from sklearn.feature_extraction.text import CountVectorizer
-from sentencetransformers import SentenceTransformer
-from transformers import pipeline
+from transformers import AutoTokenizer, AutoModel, pipeline
+
+# Load a pre-trained model and tokenizer from Hugging Face
+model_name = 'sentence-transformers/all-MiniLM-L6-v2'
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModel.from_pretrained(model_name)
 
 def fetch_data_from_redis(r):
     keys = r.keys('*')
@@ -19,10 +23,12 @@ def generate_ngrams(text, n=2):
     ngrams = vectorizer.fit_transform([text]).todense().tolist()
     return ngrams
 
-# Generate embeddings
-model = SentenceTransformer('all-MiniLM-L6-v2')  # Example model, you can choose any
+# Generate embeddings using Hugging Face Transformers
 def generate_embeddings(text):
-    embeddings = model.encode(text)
+    inputs = tokenizer(text, padding=True, truncation=True, return_tensors="pt")
+    outputs = model(**inputs)
+    # Use the mean of the last layer's features as the sentence embedding
+    embeddings = outputs.last_hidden_state.mean(dim=1).detach().numpy()
     return embeddings
 
 # Named Entity Recognition

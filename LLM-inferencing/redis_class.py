@@ -49,6 +49,7 @@ import time
 import paramiko
 import openpyxl
 import configparser
+import re
 
 class RedisManager:
     def __init__(self):
@@ -115,26 +116,6 @@ class RedisManager:
         except Exception as e:
             print(f"Failed to connect to Redis server: {e}")
 
-    def create_excel_from_redis(self):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Extract Summary"
-        headers = ['Key', 'Narrative', 'Summary', 'Evaluation']
-        ws.append(headers)
-        keys = self.redis_conn.keys('*')
-
-        for key in keys:
-            narrative = self.redis_conn.hget(key, 'Narrative')
-            summary = self.redis_conn.hget(key, f'{self.summary_model_name}:LLM Summary')
-            evaluation = self.redis_conn.hget(key, f'{self.eval_model_name}:LLM Evaluation')
-            ws.append([key, narrative, summary, evaluation])
-
-        wb.save('extract_summary.xlsx')
-
-
-
-
-
     @staticmethod
     def manage_container(hostname, username, password, container_name, action):
         ssh = paramiko.SSHClient()
@@ -200,24 +181,19 @@ class RedisManager:
 
 
     def generate_summaries(self, resume=True):
-        api_endpoint = self.api_endpoint
         headers = {'Content-Type': 'application/json'}
         keys = self.redis_conn.keys('*')
 
-        # Initialize progress bar
-        pbar = tqdm(total=len(keys), ncols=70)
-
-
+        pbar = tqdm(total=len(keys), ncols=150)
         for key in keys:
             summary_field = f'{self.summary_model_name}:LLM Summary'
-            # Check if the summary for this model already exists for this key before making the request
+            
             if resume and self.redis_conn.hexists(key, summary_field):
                 print(f"Summary for {self.summary_model_name} already exists for key: {key}, skipping...")
                 pbar.update(1)
                 continue
 
-            narrative = self.redis_conn.hget(key, 'Narrative')
-            # Use the configured prompt
+            narrative = self.redis_conn.hget(key, 'Narrative').strip()
             prompt = self.summary_prompt.format(narrative=narrative)
             data = {
                 "key": key,
@@ -228,86 +204,227 @@ class RedisManager:
                 "options": self.summary_options
             }
 
-            # If summary does not exist for this model, then make the request
             try:
                 response = requests.post(self.api_endpoint, headers=headers, data=json.dumps(data), timeout=45)
                 if response.status_code == 200:
                     parsed_json = response.json()
                     summary = parsed_json.get('response', '')
-                    # Fetch the narrative from Redis using the key
-                    narrative = self.redis_conn.hget(key, 'Narrative')
-                    # Store the summary in Redis under the model-specific field
+                    # Clean up the summary by reducing multiple newlines to single newlines
+                    # and removing leading whitespace from each line
+                    summary = '\n'.join(line.lstrip() for line in summary.split('\n'))
+
                     self.redis_conn.hset(key, summary_field, summary)
-                    print(f"\n[Success] Summary for model '{model_name}' successfully generated for key: {key}")
-                    print(f"\n[Narrative]:\n{narrative}\n")  # This will print the original narrative to the console
-                    print(f"\n[Summary]:\n{summary}\n")  # This will print the full summary to the console
+                    print(f"\n[Success] Summary for model '{self.summary_model_name}' successfully generated for key: {key}")
+                    print(f"\n'{self.summary_model_name}' Summary: '{self.summary}.")
                 else:
-                    # Print out detailed error information
                     print(f"\n[Error] Failed to get a successful response for key {key}, status code: {response.status_code}")
-                    print(f"Response body: {response.text}\n")  # This will print the error message from the API if any
             except requests.exceptions.Timeout:
                 print(f"\n[Timeout] Request timed out for key {key}. Attempting to restart the container...")
-                self.restart_container(self.hostname, self.username, self.password, self.container_name)
-                # Optionally, you can decide to retry the request here
+                self.restart_container()
 
             pbar.update(1)
-
         pbar.close()
-
 
 
     def evaluate_summaries(self, resume=True):
-        keys = self.redis_conn.keys('*')
         headers = {'Content-Type': 'application/json'}
-        pbar = tqdm(total=len(keys), ncols=70)
+        evaluations_pending = True
 
-        last_key = None
-        last_eval = None
+        while evaluations_pending:
+            keys = self.redis_conn.keys('*')
+            # Check for empty evaluations
+            evaluations_pending = False
+            pbar = tqdm(total=len(keys), ncols=150)
+
+            # First pass: generate evaluations
+            for key in keys:
+                self.perform_evaluation(key, headers, resume=True)
+                pbar.update(1)
+            pbar.close()
+
+            
+            for key in keys:
+                evaluation_field = f'{self.eval_model_name}:LLM Evaluation'
+                evaluation = self.redis_conn.hget(key, evaluation_field)
+                if not evaluation:
+                    evaluations_pending = True
+                    print(f"Evaluation for key {key} is empty, re-performing evaluation...")
+                    self.perform_evaluation(key, headers, resume=False)
+
+            if not evaluations_pending:
+                print("All evaluations are complete.")
+                break  # Exit the loop if there are no pending evaluations
+
+            print("Some evaluations are still pending. Re-scanning the Redis database...")
+
+
+    def perform_evaluation(self, key, headers, resume=False):
+        narrative = self.redis_conn.hget(key, 'Narrative')
+        summary_field = f'{self.summary_model_name}:LLM Summary'
+        summary = self.redis_conn.hget(key, summary_field)
+        evaluation_field = f'{self.eval_model_name}:LLM Evaluation'
+
+        if not narrative or not summary:
+            print(f"[Warning] Missing narrative or summary for key: {key}")
+            return
+
+        # Use the configured prompt, inserting the narrative and summary
+        prompt = self.eval_prompt.format(narrative=narrative, summary=summary)
+        data = {
+            "key": key,
+            "model": self.eval_model_name,
+            "prompt": prompt,
+            "raw": True,
+            "stream": False,
+            "options": self.eval_options
+        }
+
+        try:
+            response = requests.post(self.api_endpoint, headers=headers, data=json.dumps(data), timeout=45)
+            if response.status_code == 200:
+                parsed_json = response.json()
+                evaluation = parsed_json.get('response', '')
+                # Strip leading new lines and empty spaces from the evaluation
+                evaluation = evaluation.lstrip()
+                if evaluation:
+                    self.redis_conn.hset(key, evaluation_field, evaluation)
+                    print(f"[Success] Evaluation for model '{self.eval_model_name}' successfully generated for key: {key}\n"
+                            f"\n[Narrative]:\n{self.narrative}\n"
+                            f"\n[Summary]:\n{self.summary}\n"
+                            f"\n[Evaluation]:\n{self.evaluation}\n")
+
+
+                else:
+                    print(f"[Warning] Empty evaluation content for key: {key}")
+            else:
+                print(f"[Error] Failed to get a successful response for key {key}, status code: {response.status_code}, response: {response.text}")
+        except requests.exceptions.Timeout:
+            print(f"[Timeout] Request timed out for key {key}.")
+        except requests.exceptions.RequestException as e:
+            print(f"[RequestException] Request exception for key {key}: {e}")
+
+
+
+    def clean_text(self, text):
+        """Remove extra newlines, leading/trailing whitespace, and ensure text starts with the first word."""
+        # Remove leading and trailing whitespace
+        text = text.strip()
+        # Replace multiple newlines with a single newline
+        text = re.sub(r'\n+', '\n', text)
+        # Ensure text starts with the first word (remove leading newlines)
+        text = re.sub(r'^\n+', '', text)
+        return text
+
+
+    def generate_summaries_for_event(self, event_id, summary_model_name):
+        headers = {'Content-Type': 'application/json'}
+        key = f'event:{event_id}'
+
+        narrative = self.redis_conn.hget(key, 'Narrative').strip()
+        prompt = self.summary_prompt.format(narrative=narrative)
+        data = {
+            "key": key,
+            "model": summary_model_name,
+            "prompt": prompt,
+            "raw": True,
+            "stream": False,
+            "options": self.summary_options
+        }
+
+        response = requests.post(self.api_endpoint, headers=headers, data=json.dumps(data), timeout=45)
+        if response.status_code == 200:
+            parsed_json = response.json()
+            summary = parsed_json.get('response', '')
+            # Clean up the summary by reducing multiple newlines to single newlines
+            # and removing leading whitespace from each line
+            summary = '\n'.join(line.lstrip() for line in summary.split('\n'))
+
+            self.redis_conn.hset(key, f'{summary_model_name}:LLM Summary', summary)
+            print(f"Summary for model '{summary_model_name}' successfully generated for key: {key}")
+        else:
+            print(f"Failed to generate summary for key: {key}, status code: {response.status_code}")
+        return summary
+
+
+    def evaluate_summaries_for_event(self, event_id, eval_model_name):
+        headers = {'Content-Type': 'application/json'}
+        key = f'event:{event_id}'
+
+        narrative = self.redis_conn.hget(key, 'Narrative')
+        summary = self.redis_conn.hget(key, f'{self.summary_model_name}:LLM Summary')
+        prompt = self.eval_prompt.format(narrative=narrative, summary=summary)
+        data = {
+            "key": key,
+            "model": eval_model_name,
+            "prompt": prompt,
+            "raw": True,
+            "stream": False,
+            "options": self.eval_options
+        }
+
+        response = requests.post(self.api_endpoint, headers=headers, data=json.dumps(data), timeout=45)
+        if response.status_code == 200:
+            parsed_json = response.json()
+            evaluation = parsed_json.get('response', '')
+            # Strip leading new lines and empty spaces from the evaluation
+            evaluation = evaluation.lstrip()
+
+            self.redis_conn.hset(key, f'{eval_model_name}:LLM Evaluation', evaluation)
+            print(f"Evaluation for model '{eval_model_name}' successfully generated for key: {key}")
+
+            # Check if the Redis cache has been updated correctly
+            redis_evaluation = self.redis_conn.hget(key, f'{eval_model_name}:LLM Evaluation').strip()
+            if redis_evaluation == evaluation:
+                print(f"Redis cache updated correctly for key: {key}")
+            else:
+                print(f"Error: Redis cache not updated correctly for key: {key}")
+                print(f"Redis evaluation: {redis_evaluation}")
+                print(f"Original evaluation: {evaluation}")
+        else:
+            print(f"Failed to generate evaluation for key: {key}, status code: {response.status_code}")
+        return evaluation
+
+
+
+    def regenerate_summary_and_evaluation(self, event_id, summary_model_name=None, eval_model_name=None):
+        summary_model_name = summary_model_name or self.summary_model_name
+        eval_model_name = eval_model_name or self.eval_model_name
+        
+        # Generate a new summary
+        summary = self.generate_summaries_for_event(event_id, summary_model_name)
+        print(f"Generated summary: {summary}")
+        
+        # Generate a new evaluation
+        evaluation = self.evaluate_summaries_for_event(event_id, eval_model_name)
+        print(f"Generated evaluation: {evaluation}")
+
+
+
+
+
+    def create_excel_from_redis(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Extract Summary"
+        headers = [
+            'Key',
+            'Narrative',
+            f'{self.summary_model_name} Summary',
+            f'{self.eval_model_name} Evaluation'
+        ]
+        ws.append(headers)
+        keys = self.redis_conn.keys('*')
+
         for key in keys:
             narrative = self.redis_conn.hget(key, 'Narrative')
-            summary_field = f'{self.summary_model_name}:LLM Summary'
-            summary = self.redis_conn.hget(key, summary_field)
-            evaluation_field = f'{self.eval_model_name}:LLM Evaluation'
-            # Check if the evaluation for this model already exists for this key before making the request
-            if resume and self.redis_conn.hexists(key, evaluation_field):
-                pbar.update(1)
-                continue
-            if not narrative or not summary:
-                pbar.update(1)
-                continue
-            # Use the configured prompt, inserting the narrative and summary
-            prompt = self.eval_prompt.format(narrative=narrative, summary=summary)
-            data = {
-                "key": key,
-                "model": self.eval_model_name,
-                "prompt": prompt,
-                "raw": True,
-                "stream": False,
-                "options": self.eval_options
-            }
+            summary = self.redis_conn.hget(key, f'{self.summary_model_name}:LLM Summary')
+            evaluation = self.redis_conn.hget(key, f'{self.eval_model_name}:LLM Evaluation')
 
-            # If evaluation does not exist for this model, then make the request
-            try:
-                response = requests.post(self.api_endpoint, headers=headers, data=json.dumps(data), timeout=45)
-                if response.status_code == 200:
-                    parsed_json = response.json()
-                    evaluation = parsed_json.get('response', '')
-                    # Store the evaluation in Redis under the model-specific field
-                    self.redis_conn.hset(key, evaluation_field, evaluation)
-                    print(f"\n[Success] Evaluation for model '{self.eval_model_name}' successfully generated for key: {key}")
-                    print(f"\n[Narrative]:\n{narrative}\n")  # This will print the original narrative to the console
-                    print(f"\n[Summary]:\n{summary}\n")  # This will print the summary to the console
-                    print(f"\n[Evaluation]:\n{evaluation}\n")  # This will print the evaluation to the console
-                else:
-                    # Print out detailed error information
-                    print(f"\n[Error] Failed to get a successful response for key {key}, status code: {response.status_code}")
-                    print(f"Response body: {response.text}\n")  # This will print the error message from the API if any
-            except requests.exceptions.Timeout:
-                print(f"\n[Timeout] Request timed out for key {key}. Attempting to restart the container...")
-                self.restart_container(self.hostname, self.username, self.password, self.container_name)
-                # Optionally, you can decide to retry the request here
+            # Clean up the text for narrative, summary, and evaluation
+            narrative = self.clean_text(narrative) if narrative else narrative
+            summary = self.clean_text(summary) if summary else summary
+            evaluation = self.clean_text(evaluation) if evaluation else evaluation
 
-            pbar.update(1)
+            ws.append([key, narrative, summary, evaluation])
 
-        pbar.close()
-
+        wb.save('extract_summary.xlsx')
