@@ -204,23 +204,24 @@ class RedisManager:
                 "options": self.summary_options
             }
 
-            try:
-                response = requests.post(self.api_endpoint, headers=headers, data=json.dumps(data), timeout=45)
-                if response.status_code == 200:
-                    parsed_json = response.json()
-                    summary = parsed_json.get('response', '')
-                    # Clean up the summary by reducing multiple newlines to single newlines
-                    # and removing leading whitespace from each line
-                    summary = '\n'.join(line.lstrip() for line in summary.split('\n'))
+        try:
+            response = requests.post(self.api_endpoint, headers=headers, data=json.dumps(data), timeout=45)
+            if response.status_code == 200:
+                parsed_json = response.json()
+                summary = parsed_json.get('response', '')
+                # Clean up the summary by reducing multiple newlines to single newlines
+                # and removing leading whitespace from each line
+                summary = '\n'.join(line.lstrip() for line in summary.split('\n'))
 
-                    self.redis_conn.hset(key, summary_field, summary)
-                    print(f"\n[Success] Summary for model '{self.summary_model_name}' successfully generated for key: {key}")
-                    print(f"\n'{self.summary_model_name}' Summary: '{self.summary}.")
-                else:
-                    print(f"\n[Error] Failed to get a successful response for key {key}, status code: {response.status_code}")
-            except requests.exceptions.Timeout:
-                print(f"\n[Timeout] Request timed out for key {key}. Attempting to restart the container...")
-                self.restart_container()
+                self.redis_conn.hset(key, summary_field, summary)
+                print(f"\n[Success] Summary for model '{self.summary_model_name}' successfully generated for key: {key}")
+                print(f"\n'{self.summary_model_name}' Summary: '{summary}.")
+            else:
+                print(f"\n[Error] Failed to get a successful response for key {key}, status code: {response.status_code}")
+        except requests.exceptions.Timeout:
+            print(f"\n[Timeout] Request timed out for key {key}. Attempting to restart the container...")
+            self.restart_container()
+
 
             pbar.update(1)
         pbar.close()
@@ -289,9 +290,9 @@ class RedisManager:
                 if evaluation:
                     self.redis_conn.hset(key, evaluation_field, evaluation)
                     print(f"[Success] Evaluation for model '{self.eval_model_name}' successfully generated for key: {key}\n"
-                            f"\n[Narrative]:\n{self.narrative}\n"
-                            f"\n[Summary]:\n{self.summary}\n"
-                            f"\n[Evaluation]:\n{self.evaluation}\n")
+                            f"\n[Narrative]:\n{narrative}\n"
+                            f"\n[Summary]:\n{summary}\n"
+                            f"\n[Evaluation]:\n{evaluation}\n")
 
 
                 else:
@@ -428,3 +429,75 @@ class RedisManager:
             ws.append([key, narrative, summary, evaluation])
 
         wb.save('extract_summary.xlsx')
+
+
+
+    def run_all_summaries_and_evaluations(self):
+        # First, generate summaries for all keys
+        self.generate_all_summaries()
+
+        # After all summaries are generated, evaluate them
+        self.generate_all_evaluations()
+
+        # Finally, create an Excel file from the Redis data
+        self.create_excel_from_redis()
+
+    def generate_all_summaries(self):
+        keys = self.redis_conn.keys('*')  # Retrieve all keys
+        pbar = tqdm(total=len(keys), ncols=150, desc="Generating Summaries")
+        for key in keys:
+            self.generate_summary_for_key(key)
+            pbar.update(1)
+        pbar.close()
+
+    def generate_summary_for_key(self, key):
+        # Check if summary already exists for the key
+        summary_field = f'{self.summary_model_name}:LLM Summary'
+        if not self.redis_conn.hexists(key, summary_field):
+            narrative = self.redis_conn.hget(key, 'Narrative').strip()
+            prompt = self.summary_prompt.format(narrative=narrative)
+            data = {
+                "key": key,
+                "model": self.summary_model_name,
+                "prompt": prompt,
+                "raw": True,
+                "stream": False,
+                "options": self.summary_options
+            }
+            # Send the request to generate the summary
+            response = requests.post(self.api_endpoint, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=45)
+            if response.status_code == 200:
+                summary = response.json().get('response', '').strip()
+                # Save the summary to Redis
+                self.redis_conn.hset(key, summary_field, summary)
+
+    def generate_all_evaluations(self):
+        keys = self.redis_conn.keys('*')  # Retrieve all keys
+        pbar = tqdm(total=len(keys), ncols=150, desc="Generating Evaluations")
+        for key in keys:
+            self.generate_evaluation_for_key(key)
+            pbar.update(1)
+        pbar.close()
+
+    def generate_evaluation_for_key(self, key):
+        # Check if evaluation already exists for the key
+        evaluation_field = f'{self.eval_model_name}:LLM Evaluation'
+        if not self.redis_conn.hexists(key, evaluation_field):
+            narrative = self.redis_conn.hget(key, 'Narrative')
+            summary = self.redis_conn.hget(key, f'{self.summary_model_name}:LLM Summary')
+            if narrative and summary:  # Ensure both narrative and summary are present
+                prompt = self.eval_prompt.format(narrative=narrative, summary=summary)
+                data = {
+                    "key": key,
+                    "model": self.eval_model_name,
+                    "prompt": prompt,
+                    "raw": True,
+                    "stream": False,
+                    "options": self.eval_options
+                }
+                # Send the request to generate the evaluation
+                response = requests.post(self.api_endpoint, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=45)
+                if response.status_code == 200:
+                    evaluation = response.json().get('response', '').strip()
+                    # Save the evaluation to Redis
+                    self.redis_conn.hset(key, evaluation_field, evaluation)
