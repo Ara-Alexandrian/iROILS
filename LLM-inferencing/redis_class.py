@@ -96,6 +96,7 @@ class RedisManager:
             "num_ctx": config.getint('Eval_Model', 'num_ctx')
         }
 
+
         # TQA configuration
         self.client_id = config.get('TQA', 'CLIENT_ID')
         self.client_key = config.get('TQA', 'CLIENT_KEY')

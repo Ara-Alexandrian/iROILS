@@ -42,7 +42,7 @@ def probe_redis(r):
 # Example usage:
 redis_host = "192.168.1.4"
 redis_port = 6379
-redis_password = ""
+redis_password = "2Apple@@"
 
 # Connect to Redis
 redis_conn = connect_to_redis(redis_host, redis_port, redis_password)

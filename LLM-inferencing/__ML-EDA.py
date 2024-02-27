@@ -67,17 +67,14 @@ for phrase, freq in noun_phrase_freq.most_common(50):
     print(f"{phrase}: {freq}")
 
 
-# Generate and display n-grams for n=3, 4, 5
+# Generate and display n-grams for n=3, 4, 5, and store results
+n_grams_results = {}  # Dictionary to store n-grams results for different n values
 for n in [3, 4, 5]:
     n_grams = generate_ngrams(docs, n)
-    print(f"\nTop 20 {n}-grams:")
+    n_grams_results[n] = n_grams  # Store the result in the dictionary
+    print(f"\nTop 50 {n}-grams:")
     for n_gram, freq in n_grams.most_common(50):
         print(f"{' '.join(n_gram)}: {freq}")
-
-
-#tag generation step
-
-from collections import defaultdict
 
 # Assume 'analysis_results' is a dict containing your analysis outputs
 analysis_results = {
@@ -85,25 +82,36 @@ analysis_results = {
     'entities': entity_freq.most_common(50),
     'noun_phrases': noun_phrase_freq.most_common(50),
     'ngrams': {
-        3: n_grams_3.most_common(50),
-        4: n_grams_4.most_common(50),
-        5: n_grams_5.most_common(50),
+        3: n_grams_results[3].most_common(50),  # Access the results from the n_grams_results dictionary
+        4: n_grams_results[4].most_common(50),
+        5: n_grams_results[5].most_common(50),
     }
 }
+
 
 # Function to generate tag rules based on analysis results
 def generate_tag_rules(analysis_results):
     tag_rules = defaultdict(list)
-    # Example logic to generate rules
-    for tag, items in analysis_results.items():
-        for item, _ in items:
-            # This is a simplified example; you'll need to tailor the logic
-            # to how you define tags based on your specific analysis results
-            if 'delay' in item:
-                tag_rules['Treatment Delay'].append(item)
-            elif 'missing' in item or 'unsigned' in item:
-                tag_rules['Documentation Issue'].append(item)
+    # Iterate over the keys and values in the analysis results
+    for key, value in analysis_results.items():
+        # If the key is not 'ngrams', process normally
+        if key != 'ngrams':
+            for item, _ in value:
+                if 'delay' in item:
+                    tag_rules['Treatment Delay'].append(item)
+                elif 'missing' in item or 'unsigned' in item:
+                    tag_rules['Documentation Issue'].append(item)
+        # Special handling for 'ngrams' key
+        else:
+            for n, n_grams in value.items():
+                for n_gram, _ in n_grams:
+                    n_gram_text = ' '.join(n_gram)  # Convert n-gram tuple to text
+                    if 'delay' in n_gram_text:
+                        tag_rules['Treatment Delay'].append(n_gram_text)
+                    elif 'missing' in n_gram_text or 'unsigned' in n_gram_text:
+                        tag_rules['Documentation Issue'].append(n_gram_text)
     return dict(tag_rules)
+
 
 # Generate tag rules
 tag_rules = generate_tag_rules(analysis_results)
